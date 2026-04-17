@@ -191,7 +191,7 @@ impl RedisClient {
         field: &str,
         value: &str
     ) -> Result<(), RedisError> {
-        let key = format!("share_offer_id_map_{}_{}", map_type.as_str(), share_id);
+        let key = format!("share_offer_{}_id_map_{}", share_id, map_type.as_str());
         let mut conn = self.get_connection()?;
 
         let _: () = conn.hset(&key, field, value)?;
