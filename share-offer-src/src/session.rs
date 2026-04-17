@@ -397,14 +397,14 @@ impl SessionManager {
         report_data: &[u8],
     ) -> Result<(), String> {
         if let Some(ref redis_client) = self.redis_client {
-            let (server_id, gw_id) = if let Some(session) = self.conn_id_2_session.get(&conn_id) {
+            let (server_id, gw_id, route_id) = if let Some(session) = self.conn_id_2_session.get(&conn_id) {
                 match &*session.detail_config {
                     DetailConfig::OMSINFO(oms_config) => {
-                        (oms_config.server_id.clone(), String::new())
+                        (oms_config.server_id.clone(), String::new(), 0u16)
                     },
                     DetailConfig::TDGWINFO(_) | DetailConfig::TGWINFO(_) => {
                         let gw_id = format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32);
-                        (gw_id.clone(), gw_id)
+                        (gw_id.clone(), gw_id, session.route_id)
                     },
                     DetailConfig::None => return Err(format!("Session {} has no detail_config", conn_id)),
                 }
@@ -417,7 +417,13 @@ impl SessionManager {
                 .map_err(|e| format!("Failed to store report to Redis: {:?}", e))?;
 
             redis_client
-                .set_max_report_index(&gw_id, pbu, set_id, report_index)
+                .set_max_report_index(
+                    TCPSHARECONFIG.share_offer_id,
+                    route_id,
+                    pbu,
+                    set_id,
+                    report_index,
+                )
                 .map_err(|e| format!("Failed to update report index: {:?}", e))?;
 
             Ok(())
@@ -465,12 +471,12 @@ impl SessionManager {
 
     pub fn get_latest_report_index(&self, pbu: &str, set_id: u32) -> Result<u64, String> {
         if let Some(ref rc) = self.redis_client {
-            let gw_id = self.partition_routing_cache
+            let route_id = self.partition_routing_cache
                 .get(&(pbu.to_string(), set_id))
                 .and_then(|&conn_id| self.conn_id_2_session.get(&conn_id))
-                .map(|s| format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + s.route_id as u32))
+                .map(|s| s.route_id)
                 .unwrap_or_default();
-            rc.get_max_report_index(&gw_id, pbu, set_id)
+            rc.get_max_report_index(TCPSHARECONFIG.share_offer_id, route_id, pbu, set_id)
                 .map_err(|e| format!("Redis get_max_report_index error: {:?}", e))
         } else {
             Err("Redis not initialized".to_string())
@@ -952,19 +958,21 @@ impl SessionManager {
             }
         }
         let report_indexes = if let Some(ref redis_client) = self.redis_client {
-            let gw_id = if let Some(session) = self.conn_id_2_session.get(&conn_id) {
+            let route_id = if let Some(session) = self.conn_id_2_session.get(&conn_id) {
                 match &*session.detail_config {
-                    DetailConfig::TDGWINFO(_) | DetailConfig::TGWINFO(_) => {
-                        format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32)
-                    },
-                    _ => String::new(),
+                    DetailConfig::TDGWINFO(_) | DetailConfig::TGWINFO(_) => session.route_id,
+                    _ => 0u16,
                 }
             } else {
                 error!(target: "business", "Session not found for conn_id={}", conn_id);
-                String::new()
+                0u16
             };
 
-            match redis_client.batch_get_max_report_index(&gw_id, &pbu_set_pairs) {
+            match redis_client.batch_get_max_report_index(
+                TCPSHARECONFIG.share_offer_id,
+                route_id,
+                &pbu_set_pairs,
+            ) {
                 Ok(indexes) => indexes,
                 Err(e) => {
                     error!(target: "business", "process tdgw execrptinfo: Redis query failed: {:?}, using default", e);

@@ -26,12 +26,15 @@ impl RedisClient {
 
     pub fn get_max_report_index(
         &self,
-        gw_id: &str,
+        share_offer_id: u16,
+        route_id: u16,
         pbu: &str,
         set_id: u32
     ) -> Result<u64, RedisError> {
-        let key = format!("share_offer_max_reportIndex_{}_{}_{}",
-                          gw_id, pbu, set_id);
+        let key = format!(
+            "share_offer_{}_max_reportIndex_{}_{}_{}",
+            share_offer_id, route_id, pbu, set_id
+        );
         let mut conn = self.get_connection()?;
         match conn.get::<_, Option<u64>>(&key) {
             Ok(Some(index)) => {
@@ -51,13 +54,16 @@ impl RedisClient {
 
     pub fn set_max_report_index(
         &self,
-        gw_id: &str,
+        share_offer_id: u16,
+        route_id: u16,
         pbu: &str,
         set_id: u32,
         index: u64
     ) -> Result<(), RedisError> {
-        let key = format!("share_offer_max_reportIndex_{}_{}_{}",
-                          gw_id, pbu, set_id);
+        let key = format!(
+            "share_offer_{}_max_reportIndex_{}_{}_{}",
+            share_offer_id, route_id, pbu, set_id
+        );
         let ttl_seconds = 10 * 60 * 60; // 10 hours
         let mut conn = self.get_connection()?;
         let _: () = conn.set_ex(&key, index, ttl_seconds)?;
@@ -67,14 +73,17 @@ impl RedisClient {
 
     pub fn batch_get_max_report_index(
         &self,
-        gw_id: &str,
+        share_offer_id: u16,
+        route_id: u16,
         pbu_set_pairs: &[(String, u32)]
     ) -> Result<HashMap<(String, u32), u64>, RedisError> {
         let mut conn = self.get_connection()?;
         let mut result = HashMap::new();
         for (pbu, set_id) in pbu_set_pairs {
-            let key = format!("share_offer_max_reportIndex_{}_{}_{}",
-                              gw_id, pbu, set_id);
+            let key = format!(
+                "share_offer_{}_max_reportIndex_{}_{}_{}",
+                share_offer_id, route_id, pbu, set_id
+            );
             match conn.get::<_, Option<u64>>(&key) {
                 Ok(Some(index)) => {
                     result.insert((pbu.clone(), *set_id), index);
@@ -267,8 +276,8 @@ pub fn store_event_pipeline(
         event.server_id, event.gw_id, event.platform_id, event.pbu, event.partition_no
     );
     let max_index_key = format!(
-        "share_offer_max_reportIndex_{}_{}_{}" ,
-        event.gw_id, event.pbu, event.partition_no
+        "share_offer_{}_max_reportIndex_{}_{}_{}" ,
+        event.share_offer_id, event.route_id, event.pbu, event.partition_no
     );
     let routing_key = format!(
         "share_offer_{}_routing_{}_{}",
