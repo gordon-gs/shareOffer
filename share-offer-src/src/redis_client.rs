@@ -78,7 +78,7 @@ impl RedisClient {
         pbu_set_pairs: &[(String, u32)]
     ) -> Result<HashMap<(String, u32), u64>, RedisError> {
         let mut conn = self.get_connection()?;
-        let mut result = HashMap::new();
+        let mut result = HashMap::with_capacity(pbu_set_pairs.len());
         for (pbu, set_id) in pbu_set_pairs {
             let key = format!(
                 "share_offer_{}_max_reportIndex_{}_{}_{}",
