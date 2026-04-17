@@ -210,7 +210,8 @@ pub struct ExecReportEvent {
 }
 
 pub struct GwStatusEvent {
-    pub conn_tag: String,
+    pub share_offer_id: u16,
+    pub route_id: u16,
     pub platform_id: u16,
     pub platform_state: i32, // -1=DISCONNECT, 0=PREOPEN, 1=OPENUPCOMING, 2=OPEN, 3=HALT, 4=CLOSE
     pub pbus: String,
@@ -318,7 +319,10 @@ pub fn start_redis_write_thread(
                     }
                 }
                 Ok(RedisWriteEvent::GwStatus(ev)) => {
-                    let key = format!("share_offer_tdgw_platform_{}_{}", ev.conn_tag, ev.platform_id);
+                    let key = format!(
+                        "share_offer_{}_tdgw_platform_{}_{}",
+                        ev.share_offer_id, ev.route_id, ev.platform_id
+                    );
                     let write_result = (|| -> Result<(), RedisError> {
                         let _: () = conn.hset(&key, "platform_state", ev.platform_state)?;
                         let _: () = conn.hset(&key, "pbus", &ev.pbus)?;

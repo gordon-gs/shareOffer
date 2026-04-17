@@ -1464,7 +1464,6 @@ impl SessionManager {
         platform_state: u16,
     ) -> Option<RedisWriteEvent> {
         let session = self.conn_id_2_session.get(&conn_id)?;
-        let conn_tag = session.conn_tag.clone();
         let pbus = match &*session.detail_config {
             DetailConfig::TDGWINFO(cfg) => cfg.pbus.join(","),
             _ => String::new(),
@@ -1475,7 +1474,8 @@ impl SessionManager {
             .insert(platform_id);
         let updated_at = Local::now().format("%Y-%m-%d %H:%M:%S%.3f").to_string();
         Some(RedisWriteEvent::GwStatus(GwStatusEvent {
-            conn_tag,
+            share_offer_id: TCPSHARECONFIG.share_offer_id,
+            route_id: session.route_id,
             platform_id,
             platform_state: platform_state as i32,
             pbus,
@@ -1492,7 +1492,6 @@ impl SessionManager {
             Some(ids) => ids.clone(),
             None => return vec![],
         };
-        let conn_tag = session.conn_tag.clone();
         let pbus = match &*session.detail_config {
             DetailConfig::TDGWINFO(cfg) => cfg.pbus.join(","),
             _ => String::new(),
@@ -1501,7 +1500,8 @@ impl SessionManager {
         platform_ids
             .iter()
             .map(|&pid| RedisWriteEvent::GwStatus(GwStatusEvent {
-                conn_tag: conn_tag.clone(),
+                share_offer_id: TCPSHARECONFIG.share_offer_id,
+                route_id: session.route_id,
                 platform_id: pid,
                 platform_state: -1,
                 pbus: pbus.clone(),
