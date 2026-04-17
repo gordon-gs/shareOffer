@@ -38,11 +38,11 @@ impl RedisClient {
         let mut conn = self.get_connection()?;
         match conn.get::<_, Option<u64>>(&key) {
             Ok(Some(index)) => {
-                info!(target: "business", "Redis get_max_report_index: key={}, index={}", key, index);
+                debug!(target: "business", "Redis get_max_report_index: key={}, index={}", key, index);
                 Ok(index)
             }
             Ok(None) => {
-                info!(target: "business", "Redis get_max_report_index: key={}, not found, return 0", key);
+                debug!(target: "business", "Redis get_max_report_index: key={}, not found, return 0", key);
                 Ok(0)
             }
             Err(e) => {
@@ -67,7 +67,7 @@ impl RedisClient {
         let ttl_seconds = 10 * 60 * 60; // 10 hours
         let mut conn = self.get_connection()?;
         let _: () = conn.set_ex(&key, index, ttl_seconds)?;
-        info!(target: "business", "Redis set_max_report_index: key={}, index={}, TTL=10h", key, index);
+        debug!(target: "business", "Redis set_max_report_index: key={}, index={}, TTL=10h", key, index);
         Ok(())
     }
 
@@ -98,7 +98,7 @@ impl RedisClient {
             }
         }
         
-        info!(target: "business", "Redis batch_get_max_report_index: {} keys fetched", result.len());
+        debug!(target: "business", "Redis batch_get_max_report_index: {} keys fetched", result.len());
         Ok(result)
     }
 
@@ -113,7 +113,7 @@ impl RedisClient {
         let key = format!("share_offer_{}_routing_{}_{}", share_offer_id, pbu, set_id);
         let mut conn = self.get_connection()?;
         let _: () = conn.set(&key, route_id)?;
-        info!(target: "business", "Redis set_partition_routing: key={}, route_id={}", key, route_id);
+        debug!(target: "business", "Redis set_partition_routing: key={}, route_id={}", key, route_id);
         Ok(())
     }
 
@@ -127,7 +127,7 @@ impl RedisClient {
         let mut conn = self.get_connection()?;
         match conn.get::<_, Option<u16>>(&key) {
             Ok(route_id) => {
-                info!(target: "business", "Redis get_partition_routing: key={}, route_id={:?}", key, route_id);
+                debug!(target: "business", "Redis get_partition_routing: key={}, route_id={:?}", key, route_id);
                 Ok(route_id)
             }
             Err(e) => {
@@ -146,7 +146,7 @@ impl RedisClient {
         let key = format!("share_offer_{}_routing_{}_{}", share_offer_id, pbu, set_id);
         let mut conn = self.get_connection()?;
         let _: () = conn.del(&key)?;
-        info!(target: "business", "Redis remove_partition_routing: key={}", key);
+        debug!(target: "business", "Redis remove_partition_routing: key={}", key);
         Ok(())
     }
 
@@ -178,7 +178,7 @@ impl RedisClient {
         let reports: Vec<(u64, Vec<u8>)> = members.into_iter()
             .map(|(data, score)| (score as u64, data))
             .collect();
-        info!(target: "business",
+        debug!(target: "business",
               "Redis batch_get_execution_reports: key={}, range={}..{}, fetched={}",
               key, begin_index, latest_index, reports.len());
         Ok(reports)
@@ -221,7 +221,7 @@ impl RedisClient {
         let _: () = conn.zadd(&key, report_data, report_index)?;
         let _: () = conn.expire(&key, ttl_seconds)?;
 
-        info!(target: "business",
+        debug!(target: "business",
               "Redis store_execution_report: share_offer_id={}, server_id={}, route_id={}, pbu={}, partition_no={}, report_index={}, size={} bytes",
               share_offer_id, server_id, route_id, pbu, partition_no, report_index, report_data.len());
         Ok(())
