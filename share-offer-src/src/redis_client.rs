@@ -274,7 +274,10 @@ pub fn store_event_pipeline(
         "share_offer_{}_routing_{}_{}",
         event.share_offer_id, event.pbu, event.partition_no
     );
-    let known_partitions_key = format!("share_offer_known_setids_{}", event.gw_id);
+    let known_partitions_key = format!(
+        "share_offer_{}_known_setids_{}",
+        event.share_offer_id, event.route_id
+    );
     let partition_member = format!("{}:{}", event.pbu, event.partition_no);
 
     debug!(target: "redis", "Redis store_event_pipeline: report_key={}, max_index_key={}, routing_key={}, report_index={}",
