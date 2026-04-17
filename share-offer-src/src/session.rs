@@ -1547,6 +1547,7 @@ impl SessionManager {
         Some(RedisWriteEvent::GwInfo(GwInfoEvent {
             gwid: abs_gw_id,
             share_offer_id: TCPSHARECONFIG.share_offer_id,
+            route_id: session.route_id,
             sender_comp_id,
             pbus,
             platform_id,

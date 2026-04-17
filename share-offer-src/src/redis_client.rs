@@ -227,6 +227,7 @@ pub struct GwListEvent {
 pub struct GwInfoEvent {
     pub gwid: String,
     pub share_offer_id: u16,
+    pub route_id: u16,
     pub sender_comp_id: String,
     pub pbus: Vec<String>,
     pub platform_id: u16,
@@ -343,14 +344,14 @@ pub fn start_redis_write_thread(
                     }
                 }
                 Ok(RedisWriteEvent::GwInfo(ev)) => {
-                    let key = format!("share_offer_gw_info_{}", ev.gwid);
+                    let key = format!("share_offer_{}_gw_info_{}", ev.share_offer_id, ev.route_id);
                     let pbus_json = ev.pbus.iter()
                         .map(|p| format!("\"{}\"", p))
                         .collect::<Vec<_>>()
                         .join(",");
                     let value = format!(
-                        "{{\"gwid\":\"{}\",\"share_offer_id\":{},\"sender_comp_id\":\"{}\",\"pbus\":[{}],\"platform_id\":{}}}",
-                        ev.gwid, ev.share_offer_id, ev.sender_comp_id, pbus_json, ev.platform_id
+                        "{{\"gwid\":\"{}\",\"share_offer_id\":{},\"route_id\":{},\"sender_comp_id\":\"{}\",\"pbus\":[{}],\"platform_id\":{}}}",
+                        ev.gwid, ev.share_offer_id, ev.route_id, ev.sender_comp_id, pbus_json, ev.platform_id
                     );
                     match conn.set::<_, _, ()>(&key, &value) {
                         Ok(_) => debug!(target: "redis", "Redis gw_info ok: key={}", key),
