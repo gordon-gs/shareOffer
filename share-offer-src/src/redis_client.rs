@@ -1,12 +1,21 @@
 use redis::{Commands, RedisError, cluster::ClusterClient, cluster::ClusterConnection};
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use std::thread;
 use crossbeam_channel::{Receiver, RecvTimeoutError};
 use tracing::{info, warn, error, debug};
 use crate::constants::IdMapType;
 
+thread_local! {
+    static THREAD_CONNECTIONS: RefCell<HashMap<u64, ClusterConnection>> = RefCell::new(HashMap::new());
+}
+
+static NEXT_REDIS_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
+
 pub struct RedisClient {
+    client_id: u64,
     cluster_client: ClusterClient,
 }
 
@@ -17,11 +26,67 @@ impl RedisClient {
             .response_timeout(Duration::from_secs(5))
             .build()?;
         info!(target: "system", "Redis cluster client created: nodes={:?}", nodes);
-        Ok(Self { cluster_client })
+        Ok(Self {
+            client_id: NEXT_REDIS_CLIENT_ID.fetch_add(1, Ordering::Relaxed),
+            cluster_client,
+        })
     }
 
     pub fn get_connection(&self) -> Result<ClusterConnection, RedisError> {
         self.cluster_client.get_connection()
+    }
+
+    pub fn prewarm_current_thread(&self) -> Result<(), RedisError> {
+        self.with_thread_connection("prewarm_current_thread", |conn| {
+            let _: String = redis::cmd("PING").query(conn)?;
+            Ok(())
+        })?;
+        info!(target: "system", "Redis current thread connection prewarmed");
+        Ok(())
+    }
+
+    fn with_thread_connection<T, F>(&self, op_name: &str, mut op: F) -> Result<T, RedisError>
+    where
+        F: FnMut(&mut ClusterConnection) -> Result<T, RedisError>,
+    {
+        THREAD_CONNECTIONS.with(|connections| {
+            let mut connections = connections.borrow_mut();
+
+            if !connections.contains_key(&self.client_id) {
+                connections.insert(self.client_id, self.cluster_client.get_connection()?);
+                debug!(
+                    target: "system",
+                    "Redis thread-local connection initialized: client_id={}, op={}",
+                    self.client_id,
+                    op_name
+                );
+            }
+
+            let first_attempt = {
+                let conn = connections
+                    .get_mut(&self.client_id)
+                    .expect("thread-local redis connection must exist");
+                op(conn)
+            };
+
+            match first_attempt {
+                Ok(result) => Ok(result),
+                Err(first_error) => {
+                    warn!(
+                        target: "system",
+                        "Redis thread-local connection op failed, reconnecting: client_id={}, op={}, err={:?}",
+                        self.client_id,
+                        op_name,
+                        first_error
+                    );
+                    connections.insert(self.client_id, self.cluster_client.get_connection()?);
+                    let conn = connections
+                        .get_mut(&self.client_id)
+                        .expect("thread-local redis connection must exist after reconnect");
+                    op(conn)
+                }
+            }
+        })
     }
 
     pub fn get_max_report_index(
@@ -35,8 +100,7 @@ impl RedisClient {
             "share_offer_{}_max_reportIndex_{}_{}_{}",
             share_offer_id, route_id, pbu, set_id
         );
-        let mut conn = self.get_connection()?;
-        match conn.get::<_, Option<u64>>(&key) {
+        self.with_thread_connection("get_max_report_index", |conn| match conn.get::<_, Option<u64>>(&key) {
             Ok(Some(index)) => {
                 debug!(target: "business", "Redis get_max_report_index: key={}, index={}", key, index);
                 Ok(index)
@@ -49,7 +113,7 @@ impl RedisClient {
                 error!(target: "business", "Redis get_max_report_index failed: key={}, error={:?}", key, e);
                 Err(e)
             }
-        }
+        })
     }
 
     pub fn set_max_report_index(
@@ -65,8 +129,10 @@ impl RedisClient {
             share_offer_id, route_id, pbu, set_id
         );
         let ttl_seconds = 10 * 60 * 60; // 10 hours
-        let mut conn = self.get_connection()?;
-        let _: () = conn.set_ex(&key, index, ttl_seconds)?;
+        self.with_thread_connection("set_max_report_index", |conn| {
+            let _: () = conn.set_ex(&key, index, ttl_seconds)?;
+            Ok(())
+        })?;
         debug!(target: "business", "Redis set_max_report_index: key={}, index={}, TTL=10h", key, index);
         Ok(())
     }
@@ -77,26 +143,28 @@ impl RedisClient {
         route_id: u16,
         pbu_set_pairs: &[(String, u32)]
     ) -> Result<HashMap<(String, u32), u64>, RedisError> {
-        let mut conn = self.get_connection()?;
         let mut result = HashMap::with_capacity(pbu_set_pairs.len());
-        for (pbu, set_id) in pbu_set_pairs {
-            let key = format!(
-                "share_offer_{}_max_reportIndex_{}_{}_{}",
-                share_offer_id, route_id, pbu, set_id
-            );
-            match conn.get::<_, Option<u64>>(&key) {
-                Ok(Some(index)) => {
-                    result.insert((pbu.clone(), *set_id), index);
-                }
-                Ok(None) => {
-                    result.insert((pbu.clone(), *set_id), 0);
-                }
-                Err(e) => {
-                    warn!(target: "business", "Redis batch_get: key={}, error={:?}", key, e);
-                    result.insert((pbu.clone(), *set_id), 0);
+        self.with_thread_connection("batch_get_max_report_index", |conn| {
+            for (pbu, set_id) in pbu_set_pairs {
+                let key = format!(
+                    "share_offer_{}_max_reportIndex_{}_{}_{}",
+                    share_offer_id, route_id, pbu, set_id
+                );
+                match conn.get::<_, Option<u64>>(&key) {
+                    Ok(Some(index)) => {
+                        result.insert((pbu.clone(), *set_id), index);
+                    }
+                    Ok(None) => {
+                        result.insert((pbu.clone(), *set_id), 0);
+                    }
+                    Err(e) => {
+                        warn!(target: "business", "Redis batch_get: key={}, error={:?}", key, e);
+                        result.insert((pbu.clone(), *set_id), 0);
+                    }
                 }
             }
-        }
+            Ok(())
+        })?;
         
         debug!(target: "business", "Redis batch_get_max_report_index: {} keys fetched", result.len());
         Ok(result)
@@ -111,8 +179,10 @@ impl RedisClient {
         route_id: u16,
     ) -> Result<(), RedisError> {
         let key = format!("share_offer_{}_routing_{}_{}", share_offer_id, pbu, set_id);
-        let mut conn = self.get_connection()?;
-        let _: () = conn.set(&key, route_id)?;
+        self.with_thread_connection("set_partition_routing", |conn| {
+            let _: () = conn.set(&key, route_id)?;
+            Ok(())
+        })?;
         debug!(target: "business", "Redis set_partition_routing: key={}, route_id={}", key, route_id);
         Ok(())
     }
@@ -124,8 +194,7 @@ impl RedisClient {
         set_id: u32,
     ) -> Result<Option<u16>, RedisError> {
         let key = format!("share_offer_{}_routing_{}_{}", share_offer_id, pbu, set_id);
-        let mut conn = self.get_connection()?;
-        match conn.get::<_, Option<u16>>(&key) {
+        self.with_thread_connection("get_partition_routing", |conn| match conn.get::<_, Option<u16>>(&key) {
             Ok(route_id) => {
                 debug!(target: "business", "Redis get_partition_routing: key={}, route_id={:?}", key, route_id);
                 Ok(route_id)
@@ -134,7 +203,7 @@ impl RedisClient {
                 error!(target: "business", "Redis get_partition_routing failed: key={}, error={:?}", key, e);
                 Err(e)
             }
-        }
+        })
     }
 
     pub fn remove_partition_routing(
@@ -144,15 +213,19 @@ impl RedisClient {
         set_id: u32,
     ) -> Result<(), RedisError> {
         let key = format!("share_offer_{}_routing_{}_{}", share_offer_id, pbu, set_id);
-        let mut conn = self.get_connection()?;
-        let _: () = conn.del(&key)?;
+        self.with_thread_connection("remove_partition_routing", |conn| {
+            let _: () = conn.del(&key)?;
+            Ok(())
+        })?;
         debug!(target: "business", "Redis remove_partition_routing: key={}", key);
         Ok(())
     }
 
     pub fn ping(&self) -> Result<(), RedisError> {
-        let mut conn = self.get_connection()?;
-        let _: String = redis::cmd("PING").query(&mut conn)?;
+        self.with_thread_connection("ping", |conn| {
+            let _: String = redis::cmd("PING").query(conn)?;
+            Ok(())
+        })?;
         info!(target: "system", "Redis ping success");
         Ok(())
     }
@@ -171,10 +244,9 @@ impl RedisClient {
             "share_offer_{}_flash_report_{}_{}_{}_{}",
             share_offer_id, server_id, route_id, pbu, set_id
         );
-        let mut conn = self.get_connection()?;
-        let members: Vec<(Vec<u8>, f64)> = conn.zrangebyscore_withscores(
-            &key, begin_index as f64, latest_index as f64
-        )?;
+        let members: Vec<(Vec<u8>, f64)> = self.with_thread_connection("batch_get_execution_reports", |conn| {
+            conn.zrangebyscore_withscores(&key, begin_index as f64, latest_index as f64)
+        })?;
         let reports: Vec<(u64, Vec<u8>)> = members.into_iter()
             .map(|(data, score)| (score as u64, data))
             .collect();
@@ -192,9 +264,10 @@ impl RedisClient {
         value: &str
     ) -> Result<(), RedisError> {
         let key = format!("share_offer_{}_id_map_{}", share_id, map_type.as_str());
-        let mut conn = self.get_connection()?;
-
-        let _: () = conn.hset(&key, field, value)?;
+        self.with_thread_connection("hset_id_mapping", |conn| {
+            let _: () = conn.hset(&key, field, value)?;
+            Ok(())
+        })?;
         #[cfg(debug_assertions)]
         debug!(target: "business", "Redis HSET: key={}, field={}, value={}", key, field, value);
         Ok(())
@@ -216,10 +289,11 @@ impl RedisClient {
             share_offer_id, server_id, route_id, pbu, partition_no
         );
         let ttl_seconds = 10 * 60 * 60; // 10 hours
-        let mut conn = self.get_connection()?;
-
-        let _: () = conn.zadd(&key, report_data, report_index)?;
-        let _: () = conn.expire(&key, ttl_seconds)?;
+        self.with_thread_connection("store_execution_report", |conn| {
+            let _: () = conn.zadd(&key, report_data, report_index)?;
+            let _: () = conn.expire(&key, ttl_seconds)?;
+            Ok(())
+        })?;
 
         debug!(target: "business",
               "Redis store_execution_report: share_offer_id={}, server_id={}, route_id={}, pbu={}, partition_no={}, report_index={}, size={} bytes",

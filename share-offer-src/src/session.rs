@@ -134,6 +134,10 @@ impl SessionManager {
 
         match rx.recv_timeout(std::time::Duration::from_secs(10)) {
             Ok(Ok(client)) => {
+                if let Err(e) = client.prewarm_current_thread() {
+                    error!(target: "system", "init_redis_from_config: prewarm current thread failed: {:?}", e);
+                    return Err(format!("prewarm current thread failed: {:?}", e));
+                }
                 info!(target: "system", "init_redis_from_config: ping success, Redis ready");
                 self.redis_client = Some(client);
                 info!(target: "system", "Redis cluster initialized: {} nodes", nodes.len());
