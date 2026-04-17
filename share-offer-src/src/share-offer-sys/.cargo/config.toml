@@ -1,0 +1,5 @@
+#需要设置extremeDB的变量
+[env]
+
+[net]
+git-fetch-with-cli = true # use the `git` executable for git operations

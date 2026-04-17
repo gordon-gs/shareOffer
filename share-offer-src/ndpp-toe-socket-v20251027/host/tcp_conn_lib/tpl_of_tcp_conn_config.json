@@ -1,0 +1,53 @@
+{
+    "version": "1.0",
+    "description": "TCP Connection and Buffer Management",
+    "type": "socket",
+    "global_settings": {
+        "max_connections": 16,
+        "ring_buffer_size": 8192,
+        "reconnect_interval": 0,
+        "connection_timeout": 0
+    },
+    "arp_table": [
+        {
+            "host_mac": "c0:e7:2e:fa:44:9d",
+            "host_ip": "192.168.56.1",
+            "is_local": true
+        },
+        {
+            "host_mac": "ca:8b:38:e2:70:22",
+            "host_ip": "192.168.58.1",
+            "is_local": true
+        },
+        {
+            "host_mac": "74:3e:39:00:06:92",
+            "host_ip": "192.168.56.11",
+            "is_local": false
+        },
+        {
+            "host_mac": "74:3e:39:00:06:93",
+            "host_ip": "192.168.58.11",
+            "is_local": false
+        }
+    ],
+    "connections": [
+        {
+            "conn_id": 0,
+            "conn_tag": "tcp_server_18000",
+            "conn_type": "server",
+            "local_ip": "192.168.56.1",
+            "local_port": 18000,
+            "remote_ip": "192.168.56.1",
+            "remote_port": 0
+        },
+        {
+            "conn_id": 1,
+            "conn_tag": "tcp_client_192_168_56_1",
+            "conn_type": "client",
+            "local_ip": "192.168.56.1",
+            "local_port": 0,
+            "remote_ip": "192.168.56.11",
+            "remote_port": 15201
+        }
+    ]
+}

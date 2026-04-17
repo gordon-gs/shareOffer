@@ -1,0 +1,29 @@
+{
+    "oms": {
+        "num_sessions": 1,
+        "output_file": "oms.json",
+        "gw_type":"TGW"
+    },
+    "tdgw": {
+        "num_sessions": 0,
+        "start_port": 18004,
+        "output_file": "tdgw.json"
+    },
+    "tgw": {
+        "num_sessions": 1,
+        "target-comp-id-start": 1,
+        "socket-connect-port": 18001,
+        "socket-connect-host" : "127.0.0.1",
+        "platform-id": 1,
+        "password" :"abc",
+        "output_file": "tgw.json"
+    },
+    "tcp_share_config": {
+        "servers": 1,
+        "clients": 1,
+        "start_server_port": 18000,
+        "start_client_port": 18001,
+        "start_conn_id": 0,
+        "gw_type":"TGW"
+    }
+}

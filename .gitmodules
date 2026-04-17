@@ -1,0 +1,7 @@
+
+[submodule "thirds/fproto"]
+	path = thirds/fproto
+	url = http://10.102.41.100/rust/fproto.git
+[submodule "thirds/share-offer-sys"]
+	path = thirds/share-offer-sys
+	url = http://10.102.41.100/rust/share-offer-sys.git

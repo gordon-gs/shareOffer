@@ -1,0 +1,17 @@
+reconnect_interval = 3
+heart_bt_int = 20
+default_appl_ver_id = "1.11"
+
+[[session]]
+server_id = "app1"
+socket_connect_host = "10.110.224.204"
+socket_connect_port = 0
+gw_type = "TDGW"
+platform_id =  0
+
+[[session]]
+server_id = "app2"
+socket_connect_host = "10.110.224.201"
+socket_connect_port = 0
+gw_type = "TDGW"
+platform_id =  1

@@ -1,0 +1,8 @@
+[package]
+name = "rust_tcp_share_forward_app"
+version = "0.1.0"
+edition = "2024"
+build = "build.rs"
+
+[dependencies]
+libc = "0.2"

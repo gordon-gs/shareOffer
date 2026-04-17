@@ -1,0 +1,37 @@
+{
+    "reconnect_interval": 3,
+    "heart_bt_int": 20,
+    "prtcl_version": "1.11",
+    "session": [
+        {
+            "sender_comp_id": "CICC-SO01",
+            "target_comp_id": "TDGW-01",
+            "pbus": [
+                "24046"
+            ],
+            "platform_id": 0,
+            "socket_connect_port": 18002,
+            "socket_connect_host": "127.0.0.1"
+        },
+        {
+            "sender_comp_id": "CICC-SO02",
+            "target_comp_id": "FEITAI-SH-BIDDING",
+            "pbus": [
+                "37167"
+            ],
+            "platform_id": 0,
+            "socket_connect_port": 50054,
+            "socket_connect_host": "10.96.232.18"
+        },
+        {
+            "sender_comp_id": "CICC-SO03",
+            "target_comp_id": "TDGW-02",
+            "pbus": [
+                "24046"
+            ],
+            "platform_id": 2,
+            "socket_connect_port": 18003,
+            "socket_connect_host": "127.0.0.1"
+        }
+    ]
+}

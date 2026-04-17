@@ -1,0 +1,16 @@
+{
+    "reconnect_interval": 3,
+    "heart_bt_int": 3,
+    "default_appl_ver_id": "1.11",
+    "session": [
+        {
+            "sender_comp_id": "share_offer_tgw",
+            "target_comp_id": "TGW-01",
+            "pbus": [ "398294", "077100" ],
+            "platform_id": 1,
+            "socket_connect_port": 18001,
+            "socket_connect_host": "127.0.0.1",
+            "password": "abc"
+        }
+    ]
+}

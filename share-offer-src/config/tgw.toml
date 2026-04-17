@@ -1,0 +1,21 @@
+reconnect_interval = 3
+heart_bt_int = 20
+default_appl_ver_id = "1.11"
+
+[[session]]
+sender_comp_id = "CICC8019"
+target_comp_id = "FXXXXXXY0001        "
+pbus = [ "398294", "077100" ]
+platform_id = 1
+socket_connect_port = 7401
+socket_connect_host = "10.110.227.93"
+password = "abc             "
+
+[[session]]
+sender_comp_id = "CICC8020"
+target_comp_id = "FXXXXXXY0001"
+pbus = [ "398294", "077100" ]
+platform_id = 2
+socket_connect_port = 7402
+socket_connect_host = "10.110.227.93"
+password = "abc"

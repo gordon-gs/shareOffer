@@ -1,0 +1,8 @@
+/target
+.idea/
+/log
+.DS_Store
+*.tar.gz
+*.zip
+hs_err_pid*.log
+replay_pid*.log

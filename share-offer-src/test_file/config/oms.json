@@ -1,0 +1,14 @@
+{
+    "reconnect_interval": 3,
+    "heart_bt_int": 3,
+    "default_appl_ver_id": "1.11",
+    "session": [
+        {
+            "server_id": "app-00",
+            "socket_connect_port": 0,
+            "socket_connect_host": "127.0.0.1",
+            "gw_type": "TGW",
+            "platform_id": 0
+        }
+    ]
+}

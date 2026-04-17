@@ -1,0 +1,19 @@
+reconnect_interval = 3
+heart_bt_int = 20
+prtcl_version = "1.92"
+
+[[session]]
+sender_comp_id = "CICC-TSH01"
+target_comp_id = "TDGW"
+pbus = [ "24046" ]
+platform_id = 0
+socket_connect_port = 9515
+socket_connect_host = "10.110.224.204"
+
+[[session]]
+sender_comp_id = "CICC-TSH02"
+target_comp_id = "TDGW"
+pbus = [ "24046" ]
+platform_id = 2
+socket_connect_port = 9560
+socket_connect_host = "10.110.224.204"

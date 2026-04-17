@@ -1,0 +1,22 @@
+{
+    "reconnect_interval": 3,
+    "heart_bt_int": 20,
+    "default_appl_ver_id": "1.11",
+    "ip_whitelist": [],
+    "session": [
+        {
+            "server_id": "app-01",
+            "socket_connect_port": 0,
+            "socket_connect_host": "127.0.0.1",
+            "gw_type": "TDGW",
+            "platform_id": 0
+        },
+        {
+            "server_id": "app-02",
+            "socket_connect_port": 0,
+            "socket_connect_host": "127.0.0.1",
+            "gw_type": "TDGW",
+            "platform_id": 2
+        }
+    ]
+}

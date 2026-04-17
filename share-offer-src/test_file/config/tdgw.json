@@ -1,0 +1,6 @@
+{
+    "reconnect_interval": 3,
+    "heart_bt_int": 3,
+    "prtcl_version": "1.11",
+    "session": []
+}

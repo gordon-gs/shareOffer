@@ -1,0 +1,12 @@
+.vs
+.vscode
+logs
+build
+*.log
+.tmp_versions
+libs-api
+libs-drv
+libs-bak
+modules/yusur-sock
+libs/yusur_sock
+target

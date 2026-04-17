@@ -1,0 +1,13 @@
+{
+    "cluster_nodes": [
+        "redis://:flash@10.91.129.11:6379",
+        "redis://:flash@10.91.129.22:6379",
+        "redis://:flash@10.91.129.13:6379",
+        "redis://:flash@10.91.129.22:6380",
+        "redis://:flash@10.91.129.13:6380",
+        "redis://:flash@10.91.129.11:6380"
+    ],
+    "connection_timeout_ms": 5000,
+    "max_retries": 3,
+    "retry_interval_ms": 1000
+}

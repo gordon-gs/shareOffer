@@ -1,0 +1,71 @@
+[package]
+name = "share-offer"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+share-offer-sys = { path = "../share-offer-sys" }
+crossbeam-channel = "0.5.15"
+fproto = { git = "http://10.102.41.100/rust/fproto.git", branch = "share_offer" }
+
+thiserror = "1.0"
+lazy_static = "1.4.0"
+config = "0.13.1"
+csv = "1.1"
+oracle = "0.5.7"
+anyhow = "1.0"
+serde = "1.0.8"
+clap = { version = "4.5.52", features = ["derive"] }
+
+tracing-appender = "0.2"
+tracing = { version = "0.1", features = ["max_level_debug", "release_max_level_info"]}
+tracing-subscriber = { version = "0.3", features = ["local-time", "fmt"] }
+
+
+redis = { version = "0.25", features = ["tokio-comp", "connection-manager", "cluster"] }
+tokio = { version = "1.35", features = ["rt", "sync"] }
+
+rustyline = "14.0"
+
+core_affinity = "0.8"
+chrono = "0.4"
+tikv-jemallocator = {version = "0.6.1",features = ["unprefixed_malloc_on_supported_platforms"]}
+tikv-jemalloc-sys = "0.6.1"
+
+[features]
+default = ["v_software", "tgw","config_json","no_redis"]
+v_software = []
+tgw = []
+tdgw = []
+config_json = []
+no_redis = []
+local_debug = []
+
+
+
+[[bin]]
+name = "share_offer"
+path = "src/main.rs"
+
+
+[[bin]]
+name = "moc_server"
+path = "src/moc/moc_server.rs"
+
+[[bin]]
+name = "moc_client"
+path = "src/moc/moc_client.rs"
+
+[[bin]]
+name = "moc_server_tgw"
+path = "src/moc/moc_server_tgw.rs"
+
+[[bin]]
+name = "moc_client_tgw"
+path = "src/moc/moc_client_tgw.rs"
+
+[profile.release]
+lto = "fat"          
+codegen-units = 1   
+panic = "abort"     
+opt-level = 3        
