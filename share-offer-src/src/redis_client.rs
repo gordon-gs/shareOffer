@@ -94,21 +94,32 @@ impl RedisClient {
     }
 
 
-    pub fn set_partition_routing(&self, pbu: &str, set_id: u32, conn_id: u16) -> Result<(), RedisError> {
-        let key = format!("routing:{}:{}", pbu, set_id);
+    pub fn set_partition_routing(
+        &self,
+        share_offer_id: u16,
+        pbu: &str,
+        set_id: u32,
+        route_id: u16,
+    ) -> Result<(), RedisError> {
+        let key = format!("share_offer_{}_routing_{}_{}", share_offer_id, pbu, set_id);
         let mut conn = self.get_connection()?;
-        let _: () = conn.set(&key, conn_id)?;
-        info!(target: "business", "Redis set_partition_routing: key={}, conn_id={}", key, conn_id);
+        let _: () = conn.set(&key, route_id)?;
+        info!(target: "business", "Redis set_partition_routing: key={}, route_id={}", key, route_id);
         Ok(())
     }
 
-    pub fn get_partition_routing(&self, pbu: &str, set_id: u32) -> Result<Option<u16>, RedisError> {
-        let key = format!("routing:{}:{}", pbu, set_id);
+    pub fn get_partition_routing(
+        &self,
+        share_offer_id: u16,
+        pbu: &str,
+        set_id: u32,
+    ) -> Result<Option<u16>, RedisError> {
+        let key = format!("share_offer_{}_routing_{}_{}", share_offer_id, pbu, set_id);
         let mut conn = self.get_connection()?;
         match conn.get::<_, Option<u16>>(&key) {
-            Ok(conn_id) => {
-                info!(target: "business", "Redis get_partition_routing: key={}, conn_id={:?}", key, conn_id);
-                Ok(conn_id)
+            Ok(route_id) => {
+                info!(target: "business", "Redis get_partition_routing: key={}, route_id={:?}", key, route_id);
+                Ok(route_id)
             }
             Err(e) => {
                 error!(target: "business", "Redis get_partition_routing failed: key={}, error={:?}", key, e);
@@ -117,8 +128,13 @@ impl RedisClient {
         }
     }
 
-    pub fn remove_partition_routing(&self, pbu: &str, set_id: u32) -> Result<(), RedisError> {
-        let key = format!("routing:{}:{}", pbu, set_id);
+    pub fn remove_partition_routing(
+        &self,
+        share_offer_id: u16,
+        pbu: &str,
+        set_id: u32,
+    ) -> Result<(), RedisError> {
+        let key = format!("share_offer_{}_routing_{}_{}", share_offer_id, pbu, set_id);
         let mut conn = self.get_connection()?;
         let _: () = conn.del(&key)?;
         info!(target: "business", "Redis remove_partition_routing: key={}", key);
@@ -200,13 +216,14 @@ impl RedisClient {
 
 pub struct ExecReportEvent {
     pub server_id: String,
+    pub share_offer_id: u16,
+    pub route_id: u16,
     pub gw_id: String,
     pub platform_id: u16,
     pub pbu: String,
     pub partition_no: u32,
     pub report_index: u64,
     pub report_data: Vec<u8>,
-    pub tdgw_conn_id: u16, // 路由持久化：由哪个 TDGW 连接收到的
 }
 
 pub struct GwStatusEvent {
@@ -253,7 +270,10 @@ pub fn store_event_pipeline(
         "share_offer_max_reportIndex_{}_{}_{}" ,
         event.gw_id, event.pbu, event.partition_no
     );
-    let routing_key = format!("routing:{}:{}", event.pbu, event.partition_no);
+    let routing_key = format!(
+        "share_offer_{}_routing_{}_{}",
+        event.share_offer_id, event.pbu, event.partition_no
+    );
     let known_partitions_key = format!("share_offer_known_setids_{}", event.gw_id);
     let partition_member = format!("{}:{}", event.pbu, event.partition_no);
 
@@ -263,7 +283,7 @@ pub fn store_event_pipeline(
     let _: i32 = conn.zadd(&report_key, event.report_data.as_slice(), event.report_index)?;
     let _: i32 = conn.expire(&report_key, ttl as i64)?;
     let _: () = conn.set_ex(&max_index_key, event.report_index, ttl as u64)?;
-    let _: () = conn.set(&routing_key, event.tdgw_conn_id)?;
+    let _: () = conn.set(&routing_key, event.route_id)?;
     let _: i32 = conn.sadd(&known_partitions_key, &partition_member)?;
     let _: bool = conn.expire(&known_partitions_key, ttl as i64)?;
 

@@ -264,8 +264,24 @@ impl SessionManager {
                pbu, set_id, gw_conn_id);
 
         if let Some(ref redis_client) = self.redis_client {
-            if let Err(e) = redis_client.set_partition_routing(pbu, set_id, gw_conn_id) {
-                error!(target: "system", "failed to persist to Redis: {:?}", e);
+            let route_id = self
+                .conn_id_2_session
+                .get(&gw_conn_id)
+                .map(|session| session.route_id);
+            match route_id {
+                Some(route_id) => {
+                    if let Err(e) = redis_client.set_partition_routing(
+                        TCPSHARECONFIG.share_offer_id,
+                        pbu,
+                        set_id,
+                        route_id,
+                    ) {
+                        error!(target: "system", "failed to persist to Redis: {:?}", e);
+                    }
+                }
+                None => {
+                    error!(target: "system", "failed to persist routing: missing session for conn_id={}", gw_conn_id);
+                }
             }
         }
     }
@@ -276,7 +292,7 @@ impl SessionManager {
         debug!(target: "business", "partition routing removed: pbu={}, set_id={}", pbu, set_id);
 
         if let Some(ref redis_client) = self.redis_client {
-            if let Err(e) = redis_client.remove_partition_routing(pbu, set_id) {
+            if let Err(e) = redis_client.remove_partition_routing(TCPSHARECONFIG.share_offer_id, pbu, set_id) {
                 error!(target: "system", "failed to remove from Redis: {:?}", e);
             }
         }
@@ -436,13 +452,14 @@ impl SessionManager {
         };
         Some(RedisWriteEvent::ExecReport(ExecReportEvent {
             server_id,
+            share_offer_id: TCPSHARECONFIG.share_offer_id,
+            route_id: session.route_id,
             gw_id,
             platform_id,
             pbu: pbu.to_string(),
             partition_no: set_id,
             report_index,
             report_data,
-            tdgw_conn_id: conn_id, // 路由持久化由写线程异步完成
         }))
     }
 
