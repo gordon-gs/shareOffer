@@ -159,15 +159,18 @@ impl RedisClient {
 
     pub fn batch_get_execution_reports(
         &self,
+        share_offer_id: u16,
         server_id: &str,
-        gw_id: &str,
+        route_id: u16,
         pbu: &str,
         set_id: u32,
         begin_index: u64,
         latest_index: u64,
     ) -> Result<Vec<(u64, Vec<u8>)>, RedisError> {
-        let key = format!("share_offer_exec_rpt_{}_{}_{}_{}" ,
-                          server_id, gw_id, pbu, set_id);
+        let key = format!(
+            "share_offer_{}_flash_report_{}_{}_{}_{}",
+            share_offer_id, server_id, route_id, pbu, set_id
+        );
         let mut conn = self.get_connection()?;
         let members: Vec<(Vec<u8>, f64)> = conn.zrangebyscore_withscores(
             &key, begin_index as f64, latest_index as f64
@@ -200,15 +203,18 @@ impl RedisClient {
 
     pub fn store_execution_report(
         &self,
+        share_offer_id: u16,
         server_id: &str,
-        gw_id: &str,
+        route_id: u16,
         pbu: &str,
         partition_no: u32,
         report_index: u64,
         report_data: &[u8]
     ) -> Result<(), RedisError> {
-        let key = format!("share_offer_exec_rpt_{}_{}_{}_{}" ,
-                          server_id, gw_id, pbu, partition_no);
+        let key = format!(
+            "share_offer_{}_flash_report_{}_{}_{}_{}",
+            share_offer_id, server_id, route_id, pbu, partition_no
+        );
         let ttl_seconds = 10 * 60 * 60; // 10 hours
         let mut conn = self.get_connection()?;
 
@@ -216,8 +222,8 @@ impl RedisClient {
         let _: () = conn.expire(&key, ttl_seconds)?;
 
         info!(target: "business",
-              "Redis store_execution_report: server_id={}, gw_id={}, pbu={}, partition_no={}, report_index={}, size={} bytes",
-              server_id, gw_id, pbu, partition_no, report_index, report_data.len());
+              "Redis store_execution_report: share_offer_id={}, server_id={}, route_id={}, pbu={}, partition_no={}, report_index={}, size={} bytes",
+              share_offer_id, server_id, route_id, pbu, partition_no, report_index, report_data.len());
         Ok(())
     }
 
@@ -272,8 +278,8 @@ pub fn store_event_pipeline(
 ) -> Result<(), RedisError> {
     let ttl: usize = 10 * 60 * 60; // 10 hours
     let report_key = format!(
-        "share_offer_flash_report_{}_{}_{}_{}_{}" ,
-        event.server_id, event.gw_id, event.platform_id, event.pbu, event.partition_no
+        "share_offer_{}_flash_report_{}_{}_{}_{}" ,
+        event.share_offer_id, event.server_id, event.route_id, event.pbu, event.partition_no
     );
     let max_index_key = format!(
         "share_offer_{}_max_reportIndex_{}_{}_{}" ,

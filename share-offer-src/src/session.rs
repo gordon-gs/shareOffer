@@ -413,7 +413,15 @@ impl SessionManager {
             };
 
             redis_client
-                .store_execution_report(&server_id, &gw_id, pbu, set_id, report_index, report_data)
+                .store_execution_report(
+                    TCPSHARECONFIG.share_offer_id,
+                    &server_id,
+                    route_id,
+                    pbu,
+                    set_id,
+                    report_index,
+                    report_data,
+                )
                 .map_err(|e| format!("Failed to store report to Redis: {:?}", e))?;
 
             redis_client
@@ -491,13 +499,25 @@ impl SessionManager {
         latest_index: u64,
     ) -> Result<Vec<(u64, Vec<u8>)>, String> {
         if let Some(ref rc) = self.redis_client {
-            let gw_id = self.partition_routing_cache
+            let route_id = self.partition_routing_cache
+                .get(&(pbu.to_string(), set_id))
+                .and_then(|&conn_id| self.conn_id_2_session.get(&conn_id))
+                .map(|s| s.route_id)
+                .unwrap_or_default();
+            let server_id = self.partition_routing_cache
                 .get(&(pbu.to_string(), set_id))
                 .and_then(|&conn_id| self.conn_id_2_session.get(&conn_id))
                 .map(|s| format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + s.route_id as u32))
                 .unwrap_or_default();
-            // 对 TDGW 路径，server_id 与 gw_id 相同
-            rc.batch_get_execution_reports(&gw_id, &gw_id, pbu, set_id, begin_index, latest_index)
+            rc.batch_get_execution_reports(
+                TCPSHARECONFIG.share_offer_id,
+                &server_id,
+                route_id,
+                pbu,
+                set_id,
+                begin_index,
+                latest_index,
+            )
                 .map_err(|e| format!("Redis batch_get_execution_reports error: {:?}", e))
         } else {
             Err("Redis not initialized".to_string())
