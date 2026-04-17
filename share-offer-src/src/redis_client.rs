@@ -233,8 +233,6 @@ pub struct ExecReportEvent {
     pub server_id: String,
     pub share_offer_id: u16,
     pub route_id: u16,
-    pub gw_id: String,
-    pub platform_id: u16,
     pub pbu: String,
     pub partition_no: u32,
     pub report_index: u64,

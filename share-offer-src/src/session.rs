@@ -397,14 +397,16 @@ impl SessionManager {
         report_data: &[u8],
     ) -> Result<(), String> {
         if let Some(ref redis_client) = self.redis_client {
-            let (server_id, gw_id, route_id) = if let Some(session) = self.conn_id_2_session.get(&conn_id) {
+            let (server_id, route_id) = if let Some(session) = self.conn_id_2_session.get(&conn_id) {
                 match &*session.detail_config {
                     DetailConfig::OMSINFO(oms_config) => {
-                        (oms_config.server_id.clone(), String::new(), 0u16)
+                        (oms_config.server_id.clone(), 0u16)
                     },
                     DetailConfig::TDGWINFO(_) | DetailConfig::TGWINFO(_) => {
-                        let gw_id = format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32);
-                        (gw_id.clone(), gw_id, session.route_id)
+                        (
+                            format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32),
+                            session.route_id,
+                        )
                     },
                     DetailConfig::None => return Err(format!("Session {} has no detail_config", conn_id)),
                 }
@@ -450,17 +452,15 @@ impl SessionManager {
         report_data: Vec<u8>,
     ) -> Option<RedisWriteEvent> {
         let session = self.conn_id_2_session.get(&conn_id)?;
-        let (server_id, gw_id, platform_id) = match &*session.detail_config {
+        let server_id = match &*session.detail_config {
             DetailConfig::OMSINFO(oms_config) => {
-                (oms_config.server_id.clone(), String::new(), 0u16)
+                oms_config.server_id.clone()
             }
-            DetailConfig::TDGWINFO(cfg) => {
-                let gw_id = format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32);
-                (gw_id.clone(), gw_id, cfg.platform_id)
+            DetailConfig::TDGWINFO(_) => {
+                format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32)
             }
-            DetailConfig::TGWINFO(cfg) => {
-                let gw_id = format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32);
-                (gw_id.clone(), gw_id, cfg.platform_id)
+            DetailConfig::TGWINFO(_) => {
+                format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32)
             }
             DetailConfig::None => return None,
         };
@@ -468,8 +468,6 @@ impl SessionManager {
             server_id,
             share_offer_id: TCPSHARECONFIG.share_offer_id,
             route_id: session.route_id,
-            gw_id,
-            platform_id,
             pbu: pbu.to_string(),
             partition_no: set_id,
             report_index,
@@ -499,16 +497,16 @@ impl SessionManager {
         latest_index: u64,
     ) -> Result<Vec<(u64, Vec<u8>)>, String> {
         if let Some(ref rc) = self.redis_client {
-            let route_id = self.partition_routing_cache
+            let route_info = self.partition_routing_cache
                 .get(&(pbu.to_string(), set_id))
                 .and_then(|&conn_id| self.conn_id_2_session.get(&conn_id))
-                .map(|s| s.route_id)
-                .unwrap_or_default();
-            let server_id = self.partition_routing_cache
-                .get(&(pbu.to_string(), set_id))
-                .and_then(|&conn_id| self.conn_id_2_session.get(&conn_id))
-                .map(|s| format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + s.route_id as u32))
-                .unwrap_or_default();
+                .map(|s| {
+                    (
+                        s.route_id,
+                        format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + s.route_id as u32),
+                    )
+                });
+            let (route_id, server_id) = route_info.unwrap_or_else(|| (0u16, String::new()));
             rc.batch_get_execution_reports(
                 TCPSHARECONFIG.share_offer_id,
                 &server_id,
