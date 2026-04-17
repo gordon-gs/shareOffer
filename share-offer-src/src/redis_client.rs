@@ -336,7 +336,7 @@ pub fn start_redis_write_thread(
                     }
                 }
                 Ok(RedisWriteEvent::GwList(ev)) => {
-                    let key = format!("share_offer_gw_list_{}_{}", ev.share_offer_id, ev.platform_id);
+                    let key = format!("share_offer_{}_gw_list_{}", ev.share_offer_id, ev.platform_id);
                     let value = ev.gwids.join(",");
                     match conn.set::<_, _, ()>(&key, &value) {
                         Ok(_) => debug!(target: "redis", "Redis gw_list ok: key={}, value={}", key, value),
