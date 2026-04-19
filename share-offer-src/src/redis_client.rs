@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use std::thread;
-use crossbeam_channel::{Receiver, RecvTimeoutError};
+use crossbeam_channel::{Receiver, RecvTimeoutError, TryRecvError};
 use tracing::{info, warn, error, debug};
 use crate::constants::IdMapType;
 
@@ -344,10 +344,12 @@ pub enum RedisWriteEvent {
     GwInfo(GwInfoEvent),
 }
 
-pub fn store_event_pipeline(
-    conn: &mut ClusterConnection,
+const EXEC_REPORT_BATCH_LIMIT: usize = 32;
+
+fn append_exec_report_commands(
+    pipe: &mut redis::cluster::ClusterPipeline,
     event: &ExecReportEvent,
-) -> Result<(), RedisError> {
+) {
     let ttl: usize = 10 * 60 * 60; // 10 hours
     let report_key = format!(
         "share_offer_{}_flash_report_{}_{}_{}_{}" ,
@@ -370,8 +372,7 @@ pub fn store_event_pipeline(
     debug!(target: "redis", "Redis store_event_pipeline: report_key={}, max_index_key={}, routing_key={}, report_index={}",
         report_key, max_index_key, routing_key, event.report_index);
 
-    redis::cluster::cluster_pipe()
-        .cmd("ZADD")
+    pipe.cmd("ZADD")
         .arg(&report_key)
         .arg(event.report_index)
         .arg(event.report_data.as_slice())
@@ -396,8 +397,29 @@ pub fn store_event_pipeline(
         .cmd("EXPIRE")
         .arg(&known_partitions_key)
         .arg(ttl as i64)
-        .ignore()
-        .exec(conn)?;
+        .ignore();
+}
+
+pub fn store_event_pipeline(
+    conn: &mut ClusterConnection,
+    event: &ExecReportEvent,
+) -> Result<(), RedisError> {
+    let mut pipe = redis::cluster::cluster_pipe();
+    append_exec_report_commands(&mut pipe, event);
+    pipe.exec(conn)?;
+
+    Ok(())
+}
+
+fn store_event_batch_pipeline(
+    conn: &mut ClusterConnection,
+    events: &[ExecReportEvent],
+) -> Result<(), RedisError> {
+    let mut pipe = redis::cluster::cluster_pipe();
+    for event in events {
+        append_exec_report_commands(&mut pipe, event);
+    }
+    pipe.exec(conn)?;
 
     Ok(())
 }
@@ -427,28 +449,66 @@ pub fn start_redis_write_thread(
         };
         const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
         info!(target: "system", "Redis write thread started (pipeline mode)");
+        let mut pending_event: Option<RedisWriteEvent> = None;
         loop {
-            match rx.recv_timeout(KEEPALIVE_INTERVAL) {
+            let next_event = match pending_event.take() {
+                Some(event) => Ok(event),
+                None => rx.recv_timeout(KEEPALIVE_INTERVAL),
+            };
+            match next_event {
                 Ok(RedisWriteEvent::ExecReport(event)) => {
-                    if let Err(e) = store_event_pipeline(&mut conn, &event) {
-                        error!(target: "business", "Redis write thread: pipeline failed: {:?}, retrying after reconnect", e);
+                    let mut batch = Vec::with_capacity(EXEC_REPORT_BATCH_LIMIT);
+                    batch.push(event);
+                    let mut channel_closed = false;
+
+                    while batch.len() < EXEC_REPORT_BATCH_LIMIT {
+                        match rx.try_recv() {
+                            Ok(RedisWriteEvent::ExecReport(next)) => batch.push(next),
+                            Ok(other_event) => {
+                                pending_event = Some(other_event);
+                                break;
+                            }
+                            Err(TryRecvError::Empty) => break,
+                            Err(TryRecvError::Disconnected) => {
+                                channel_closed = true;
+                                break;
+                            }
+                        }
+                    }
+
+                    if let Err(e) = store_event_batch_pipeline(&mut conn, &batch) {
+                        error!(target: "business", "Redis write thread: batch pipeline failed: {:?}, retrying after reconnect, batch_size={}", e, batch.len());
                         match client.get_connection() {
                             Ok(new_conn) => {
                                 conn = new_conn;
                                 info!(target: "system", "Redis write thread: reconnected");
-                                if let Err(re) = store_event_pipeline(&mut conn, &event) {
-                                    error!(target: "business", "Redis write thread: retry failed: {:?}, dropped: pbu={}, partition_no={}, report_index={}",
-                                        re, event.pbu, event.partition_no, event.report_index);
+                                if let Err(re) = store_event_batch_pipeline(&mut conn, &batch) {
+                                    if let Some(first) = batch.first() {
+                                        error!(target: "business", "Redis write thread: batch retry failed: {:?}, dropped_batch_size={}, first_pbu={}, first_partition_no={}, first_report_index={}",
+                                            re, batch.len(), first.pbu, first.partition_no, first.report_index);
+                                    } else {
+                                        error!(target: "business", "Redis write thread: batch retry failed: {:?}, dropped empty batch", re);
+                                    }
                                 } else {
-                                    info!(target: "business", "Redis write thread: retry ok: pbu={}, partition_no={}, report_index={}",
-                                        event.pbu, event.partition_no, event.report_index);
+                                    if let Some(first) = batch.first() {
+                                        info!(target: "business", "Redis write thread: batch retry ok: batch_size={}, first_pbu={}, first_partition_no={}, first_report_index={}",
+                                            batch.len(), first.pbu, first.partition_no, first.report_index);
+                                    }
                                 }
                             }
                             Err(re) => {
-                                error!(target: "system", "Redis write thread: reconnect failed: {:?}, dropped: pbu={}, partition_no={}, report_index={}",
-                                    re, event.pbu, event.partition_no, event.report_index);
+                                if let Some(first) = batch.first() {
+                                    error!(target: "system", "Redis write thread: reconnect failed: {:?}, dropped_batch_size={}, first_pbu={}, first_partition_no={}, first_report_index={}",
+                                        re, batch.len(), first.pbu, first.partition_no, first.report_index);
+                                } else {
+                                    error!(target: "system", "Redis write thread: reconnect failed: {:?}, dropped empty batch", re);
+                                }
                             }
                         }
+                    }
+                    if channel_closed {
+                        info!(target: "system", "Redis write thread: channel closed after draining exec report batch, exiting");
+                        break;
                     }
                 }
                 Ok(RedisWriteEvent::GwStatus(ev)) => {
