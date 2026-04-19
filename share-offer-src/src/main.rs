@@ -1,4 +1,4 @@
-use crossbeam_channel::{Receiver, Sender, TryRecvError, unbounded};
+use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError, bounded, unbounded};
 use fproto::stream_frame::tdgw_bin::TdgwBinFrame;
 use fproto::stream_frame::tgw_bin::{TgwBinFrame, platform_info};
 use share_offer::config::oms::{OMSCONFIG, OMSConfig};
@@ -24,7 +24,7 @@ use std::ffi::CString;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::thread;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use tracing::{Level, debug, error, info, warn};
 use tracing_subscriber::fmt::time;
@@ -35,6 +35,14 @@ use core_affinity;
 use share_offer::route::{RouteDirection, RouteLinkType};
 
 const NUM_BUSINESS_THREADS: usize = 3;
+// Redis write queue tuning knobs.
+// These are conservative starting values for production rollout, not final tuned numbers.
+// They should be validated and adjusted with pressure tests and real market traffic.
+const REDIS_WRITE_QUEUE_CAPACITY: usize = 8192;
+// When the bounded queue is full, retry enqueue this many times before declaring backpressure failure.
+const REDIS_WRITE_RETRY_COUNT: usize = 3;
+// Per-retry wait time in microseconds. Keep this short to avoid turning Redis pressure into long main-thread stalls.
+const REDIS_WRITE_RETRY_DELAY_US: u64 = 200;
 
 fn get_current_dir() -> PathBuf {
     env::current_dir().expect("无法获取当前工作目录")
@@ -182,6 +190,51 @@ struct ShareOffer {
 }
 
 impl ShareOffer {
+    fn enqueue_redis_event(&self, event: RedisWriteEvent, context: &str) {
+        let Some(tx) = &self.redis_write_tx else {
+            warn!(target: "system", "Redis write channel unavailable: context={}", context);
+            return;
+        };
+
+        let mut pending_event = event;
+        for attempt in 0..=REDIS_WRITE_RETRY_COUNT {
+            match tx.try_send(pending_event) {
+                Ok(()) => {
+                    if attempt > 0 {
+                        warn!(
+                            target: "system",
+                            "Redis write enqueue recovered after retry: context={}, attempt={}",
+                            context,
+                            attempt
+                        );
+                    }
+                    return;
+                }
+                Err(TrySendError::Full(event_back)) => {
+                    pending_event = event_back;
+                    if attempt == REDIS_WRITE_RETRY_COUNT {
+                        error!(
+                            target: "system",
+                            "Redis write queue full, dropping event: context={}, retries={}",
+                            context,
+                            REDIS_WRITE_RETRY_COUNT
+                        );
+                        return;
+                    }
+                    std::thread::sleep(Duration::from_micros(REDIS_WRITE_RETRY_DELAY_US));
+                }
+                Err(TrySendError::Disconnected(_)) => {
+                    error!(
+                        target: "system",
+                        "Redis write channel disconnected, dropping event: context={}",
+                        context
+                    );
+                    return;
+                }
+            }
+        }
+    }
+
     fn new() -> Self {
         // 步骤 1: 创建结果通道（业务线程 → 接收线程）
         let result_channels = unbounded();
@@ -251,10 +304,8 @@ impl ShareOffer {
         self.init_sessions_config();
         info!(target: "system", "Sessions config initialized");
         if !cfg!(feature = "no_redis") {
-            if let Some(tx) = &self.redis_write_tx {
-                for event in self.session_manager.build_gw_list_events() {
-                    let _ = tx.send(event);
-                }
+            for event in self.session_manager.build_gw_list_events() {
+                self.enqueue_redis_event(event, "init_gw_list");
             }
             info!(target: "system", "Initializing ID mapping...");
             if let Err(e) = self.session_manager.init_id_mapping() {
@@ -276,7 +327,7 @@ impl ShareOffer {
     }
 
     fn init_redis_write_thread(&mut self) {
-        let (tx, rx) = unbounded::<RedisWriteEvent>();
+        let (tx, rx) = bounded::<RedisWriteEvent>(REDIS_WRITE_QUEUE_CAPACITY);
         let nodes = REDISCONFIG.cluster_nodes.clone();
         let _ = start_redis_write_thread(rx, nodes);
         self.redis_write_tx = Some(tx);
@@ -580,10 +631,8 @@ impl ShareOffer {
                                 .session_manager
                                 .build_gw_disconnect_events(conn_event.conn_id);
                             // manage memory, update self.routing_map
-                            if let Some(tx) = &self.redis_write_tx {
-                                for ev in disconnect_events {
-                                    let _ = tx.send(ev);
-                                }
+                            for ev in disconnect_events {
+                                self.enqueue_redis_event(ev, "gw_disconnect");
                             }
                         }
 
@@ -1638,9 +1687,7 @@ impl ShareOffer {
                                 if let Some(ev) =
                                     self.session_manager.build_gw_info_event(conn_event.conn_id)
                                 {
-                                    if let Some(tx) = &self.redis_write_tx {
-                                        let _ = tx.send(ev);
-                                    }
+                                    self.enqueue_redis_event(ev, "gw_info");
                                 }
                             }
                         }
@@ -1707,11 +1754,7 @@ impl ShareOffer {
                                             report_index,
                                             full_report_data,
                                         ) {
-                                            if let Some(tx) = &self.redis_write_tx {
-                                                if let Err(e) = tx.send(event) {
-                                                    error!(target: "system", "Failed to send ExecutionReportResponse to Redis write thread: {:?}", e);
-                                                }
-                                            }
+                                            self.enqueue_redis_event(event, "exec_report_response");
                                         }
                                         self.session_manager.record_partition_routing_from_report(
                                             &pbu_str,
@@ -1735,11 +1778,7 @@ impl ShareOffer {
                                             report_index,
                                             full_report_data,
                                         ) {
-                                            if let Some(tx) = &self.redis_write_tx {
-                                                if let Err(e) = tx.send(event) {
-                                                    error!(target: "system", "Failed to send ExecutionReportNew to Redis write thread: {:?}", e);
-                                                }
-                                            }
+                                            self.enqueue_redis_event(event, "exec_report_new");
                                         }
                                     }
 
@@ -1764,11 +1803,7 @@ impl ShareOffer {
                                             report_index,
                                             full_report_data,
                                         ) {
-                                            if let Some(tx) = &self.redis_write_tx {
-                                                if let Err(e) = tx.send(event) {
-                                                    error!(target: "system", "Failed to send CancelReject to Redis write thread: {:?}", e);
-                                                }
-                                            }
+                                            self.enqueue_redis_event(event, "cancel_reject");
                                         }
                                     }
 
@@ -1894,9 +1929,7 @@ impl ShareOffer {
                                     platformstate.get_platform_id(),
                                     platformstate.get_platform_state(),
                                 ) {
-                                    if let Some(tx) = &self.redis_write_tx {
-                                        let _ = tx.send(ev);
-                                    }
+                                    self.enqueue_redis_event(ev, "gw_status");
                                 }
                             }
 
