@@ -370,12 +370,34 @@ pub fn store_event_pipeline(
     debug!(target: "redis", "Redis store_event_pipeline: report_key={}, max_index_key={}, routing_key={}, report_index={}",
         report_key, max_index_key, routing_key, event.report_index);
 
-    let _: i32 = conn.zadd(&report_key, event.report_data.as_slice(), event.report_index)?;
-    let _: i32 = conn.expire(&report_key, ttl as i64)?;
-    let _: () = conn.set_ex(&max_index_key, event.report_index, ttl as u64)?;
-    let _: () = conn.set(&routing_key, event.route_id)?;
-    let _: i32 = conn.sadd(&known_partitions_key, &partition_member)?;
-    let _: bool = conn.expire(&known_partitions_key, ttl as i64)?;
+    redis::cluster::cluster_pipe()
+        .cmd("ZADD")
+        .arg(&report_key)
+        .arg(event.report_index)
+        .arg(event.report_data.as_slice())
+        .ignore()
+        .cmd("EXPIRE")
+        .arg(&report_key)
+        .arg(ttl as i64)
+        .ignore()
+        .cmd("SETEX")
+        .arg(&max_index_key)
+        .arg(ttl as u64)
+        .arg(event.report_index)
+        .ignore()
+        .cmd("SET")
+        .arg(&routing_key)
+        .arg(event.route_id)
+        .ignore()
+        .cmd("SADD")
+        .arg(&known_partitions_key)
+        .arg(&partition_member)
+        .ignore()
+        .cmd("EXPIRE")
+        .arg(&known_partitions_key)
+        .arg(ttl as i64)
+        .ignore()
+        .exec(conn)?;
 
     Ok(())
 }
