@@ -57,6 +57,10 @@ pub struct Session {
     pub remote_connect_str: String,
     pub remote_id: String,
     pub absolute_id: String,
+    pub exec_report_key_prefix: Arc<String>,
+    pub max_report_index_key_prefix: Arc<String>,
+    pub routing_key_prefix: Arc<String>,
+    pub known_setids_key: Arc<String>,
     pub last_read_time_ms: u128,
     pub last_write_time_ms: u128,
     pub heart_beat: i32,
@@ -459,8 +463,10 @@ impl SessionManager {
             return None;
         }
         Some(RedisWriteEvent::ExecReport(ExecReportEvent {
-            server_id: session.absolute_id.clone(),
-            share_offer_id: TCPSHARECONFIG.share_offer_id,
+            report_key_prefix: session.exec_report_key_prefix.clone(),
+            max_report_index_key_prefix: session.max_report_index_key_prefix.clone(),
+            routing_key_prefix: session.routing_key_prefix.clone(),
+            known_setids_key: session.known_setids_key.clone(),
             route_id: session.route_id,
             pbu: pbu.to_string(),
             partition_no: set_id,

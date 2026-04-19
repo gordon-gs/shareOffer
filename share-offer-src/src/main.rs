@@ -190,6 +190,28 @@ struct ShareOffer {
 }
 
 impl ShareOffer {
+    fn build_exec_report_key_cache(
+        route_id: u16,
+        absolute_id: &str,
+    ) -> (Arc<String>, Arc<String>, Arc<String>, Arc<String>) {
+        let share_offer_id = TCPSHARECONFIG.share_offer_id;
+        (
+            Arc::new(format!(
+                "share_offer_{}_flash_report_{}_{}_",
+                share_offer_id, absolute_id, route_id
+            )),
+            Arc::new(format!(
+                "share_offer_{}_max_reportIndex_{}_",
+                share_offer_id, route_id
+            )),
+            Arc::new(format!("share_offer_{}_routing_", share_offer_id)),
+            Arc::new(format!(
+                "share_offer_{}_known_setids_{}",
+                share_offer_id, route_id
+            )),
+        )
+    }
+
     fn enqueue_redis_event(&self, event: RedisWriteEvent, context: &str) {
         let Some(tx) = &self.redis_write_tx else {
             warn!(target: "system", "Redis write channel unavailable: context={}", context);
@@ -414,11 +436,22 @@ impl ShareOffer {
                         .server_id_to_session_map
                         .get(&connection.conn_tag)
                         .expect("wrong oms config");
+                    let absolute_id = oms_config.server_id.clone();
+                    let (
+                        exec_report_key_prefix,
+                        max_report_index_key_prefix,
+                        routing_key_prefix,
+                        known_setids_key,
+                    ) = Self::build_exec_report_key_cache(connection.route_id, &absolute_id);
                     Session {
                         conn_id: connection.conn_id,
                         route_id: connection.route_id,
                         conn_tag: connection.conn_tag.clone(),
-                        absolute_id: oms_config.server_id.clone(),
+                        absolute_id,
+                        exec_report_key_prefix,
+                        max_report_index_key_prefix,
+                        routing_key_prefix,
+                        known_setids_key,
                         local_connect_str: format!(
                             "{}:{}",
                             connection.local_ip, connection.local_port
@@ -449,14 +482,25 @@ impl ShareOffer {
                         .session_id_to_session_map
                         .get(&connection.conn_tag)
                         .expect("wrong tgw config");
+                    let absolute_id = format!(
+                        "{}",
+                        TCPSHARECONFIG.share_offer_id as u32 * 100 + connection.route_id as u32
+                    );
+                    let (
+                        exec_report_key_prefix,
+                        max_report_index_key_prefix,
+                        routing_key_prefix,
+                        known_setids_key,
+                    ) = Self::build_exec_report_key_cache(connection.route_id, &absolute_id);
                     Session {
                         conn_id: connection.conn_id,
                         route_id: connection.route_id,
                         conn_tag: connection.conn_tag.clone(),
-                        absolute_id: format!(
-                            "{}",
-                            TCPSHARECONFIG.share_offer_id as u32 * 100 + connection.route_id as u32
-                        ),
+                        absolute_id,
+                        exec_report_key_prefix,
+                        max_report_index_key_prefix,
+                        routing_key_prefix,
+                        known_setids_key,
                         local_connect_str: "".to_string(),
                         remote_connect_str: format!(
                             "{}:{}",
@@ -484,14 +528,25 @@ impl ShareOffer {
                         .session_id_to_session_map
                         .get(&connection.conn_tag)
                         .expect("wrong tdgw config");
+                    let absolute_id = format!(
+                        "{}",
+                        TCPSHARECONFIG.share_offer_id as u32 * 100 + connection.route_id as u32
+                    );
+                    let (
+                        exec_report_key_prefix,
+                        max_report_index_key_prefix,
+                        routing_key_prefix,
+                        known_setids_key,
+                    ) = Self::build_exec_report_key_cache(connection.route_id, &absolute_id);
                     Session {
                         conn_id: connection.conn_id,
                         route_id: connection.route_id,
                         conn_tag: connection.conn_tag.clone(),
-                        absolute_id: format!(
-                            "{}",
-                            TCPSHARECONFIG.share_offer_id as u32 * 100 + connection.route_id as u32
-                        ),
+                        absolute_id,
+                        exec_report_key_prefix,
+                        max_report_index_key_prefix,
+                        routing_key_prefix,
+                        known_setids_key,
                         local_connect_str: "".to_string(),
                         remote_connect_str: format!(
                             "{}:{}",

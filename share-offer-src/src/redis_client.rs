@@ -1,6 +1,8 @@
 use redis::{Commands, RedisError, cluster::ClusterClient, cluster::ClusterConnection};
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Write as _;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use std::thread;
@@ -304,8 +306,10 @@ impl RedisClient {
 }
 
 pub struct ExecReportEvent {
-    pub server_id: String,
-    pub share_offer_id: u16,
+    pub report_key_prefix: Arc<String>,
+    pub max_report_index_key_prefix: Arc<String>,
+    pub routing_key_prefix: Arc<String>,
+    pub known_setids_key: Arc<String>,
     pub route_id: u16,
     pub pbu: String,
     pub partition_no: u32,
@@ -346,28 +350,44 @@ pub enum RedisWriteEvent {
 
 const EXEC_REPORT_BATCH_LIMIT: usize = 32;
 
+fn build_pbu_partition_key(prefix: &str, pbu: &str, partition_no: u32) -> String {
+    let mut key = String::with_capacity(prefix.len() + pbu.len() + 16);
+    key.push_str(prefix);
+    key.push_str(pbu);
+    key.push('_');
+    let _ = write!(&mut key, "{}", partition_no);
+    key
+}
+
+fn build_partition_member(pbu: &str, partition_no: u32) -> String {
+    let mut member = String::with_capacity(pbu.len() + 16);
+    member.push_str(pbu);
+    member.push(':');
+    let _ = write!(&mut member, "{}", partition_no);
+    member
+}
+
 fn append_exec_report_commands(
     pipe: &mut redis::cluster::ClusterPipeline,
     event: &ExecReportEvent,
 ) {
     let ttl: usize = 10 * 60 * 60; // 10 hours
-    let report_key = format!(
-        "share_offer_{}_flash_report_{}_{}_{}_{}" ,
-        event.share_offer_id, event.server_id, event.route_id, event.pbu, event.partition_no
+    let report_key = build_pbu_partition_key(
+        event.report_key_prefix.as_str(),
+        &event.pbu,
+        event.partition_no,
     );
-    let max_index_key = format!(
-        "share_offer_{}_max_reportIndex_{}_{}_{}" ,
-        event.share_offer_id, event.route_id, event.pbu, event.partition_no
+    let max_index_key = build_pbu_partition_key(
+        event.max_report_index_key_prefix.as_str(),
+        &event.pbu,
+        event.partition_no,
     );
-    let routing_key = format!(
-        "share_offer_{}_routing_{}_{}",
-        event.share_offer_id, event.pbu, event.partition_no
+    let routing_key = build_pbu_partition_key(
+        event.routing_key_prefix.as_str(),
+        &event.pbu,
+        event.partition_no,
     );
-    let known_partitions_key = format!(
-        "share_offer_{}_known_setids_{}",
-        event.share_offer_id, event.route_id
-    );
-    let partition_member = format!("{}:{}", event.pbu, event.partition_no);
+    let partition_member = build_partition_member(&event.pbu, event.partition_no);
 
     debug!(target: "redis", "Redis store_event_pipeline: report_key={}, max_index_key={}, routing_key={}, report_index={}",
         report_key, max_index_key, routing_key, event.report_index);
@@ -391,11 +411,11 @@ fn append_exec_report_commands(
         .arg(event.route_id)
         .ignore()
         .cmd("SADD")
-        .arg(&known_partitions_key)
+        .arg(event.known_setids_key.as_str())
         .arg(&partition_member)
         .ignore()
         .cmd("EXPIRE")
-        .arg(&known_partitions_key)
+        .arg(event.known_setids_key.as_str())
         .arg(ttl as i64)
         .ignore();
 }
