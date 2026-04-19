@@ -418,6 +418,7 @@ impl ShareOffer {
                         conn_id: connection.conn_id,
                         route_id: connection.route_id,
                         conn_tag: connection.conn_tag.clone(),
+                        absolute_id: oms_config.server_id.clone(),
                         local_connect_str: format!(
                             "{}:{}",
                             connection.local_ip, connection.local_port
@@ -452,6 +453,10 @@ impl ShareOffer {
                         conn_id: connection.conn_id,
                         route_id: connection.route_id,
                         conn_tag: connection.conn_tag.clone(),
+                        absolute_id: format!(
+                            "{}",
+                            TCPSHARECONFIG.share_offer_id as u32 * 100 + connection.route_id as u32
+                        ),
                         local_connect_str: "".to_string(),
                         remote_connect_str: format!(
                             "{}:{}",
@@ -483,6 +488,10 @@ impl ShareOffer {
                         conn_id: connection.conn_id,
                         route_id: connection.route_id,
                         conn_tag: connection.conn_tag.clone(),
+                        absolute_id: format!(
+                            "{}",
+                            TCPSHARECONFIG.share_offer_id as u32 * 100 + connection.route_id as u32
+                        ),
                         local_connect_str: "".to_string(),
                         remote_connect_str: format!(
                             "{}:{}",

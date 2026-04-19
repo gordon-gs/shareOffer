@@ -56,6 +56,7 @@ pub struct Session {
     pub local_connect_str: String,
     pub remote_connect_str: String,
     pub remote_id: String,
+    pub absolute_id: String,
     pub last_read_time_ms: u128,
     pub last_write_time_ms: u128,
     pub heart_beat: i32,
@@ -172,15 +173,13 @@ impl SessionManager {
                 }
 
                 let (absolute_id, platform_id_opt) = match &*session.detail_config {
+                    // OMS uses server_id as absolute_id, and keeps platform_id in composite_id.
                     DetailConfig::OMSINFO(oms_config) => {
-                        (oms_config.server_id.clone(), Some(oms_config.platform_id))
-                    },
-                    DetailConfig::TDGWINFO(_) => {
-                        (format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32), None)
-                    },
-                    DetailConfig::TGWINFO(_) => {
-                        (format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32), None)
-                    },
+                        (session.absolute_id.as_str(), Some(oms_config.platform_id))
+                    }
+                    // TDGW/TGW use gwid as absolute_id, without platform_id suffix.
+                    DetailConfig::TDGWINFO(_) => (session.absolute_id.as_str(), None),
+                    DetailConfig::TGWINFO(_) => (session.absolute_id.as_str(), None),
                     DetailConfig::None => continue,
                 };
 
@@ -456,20 +455,11 @@ impl SessionManager {
         report_data: Vec<u8>,
     ) -> Option<RedisWriteEvent> {
         let session = self.conn_id_2_session.get(&conn_id)?;
-        let server_id = match &*session.detail_config {
-            DetailConfig::OMSINFO(oms_config) => {
-                oms_config.server_id.clone()
-            }
-            DetailConfig::TDGWINFO(_) => {
-                format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32)
-            }
-            DetailConfig::TGWINFO(_) => {
-                format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + session.route_id as u32)
-            }
-            DetailConfig::None => return None,
-        };
+        if matches!(&*session.detail_config, DetailConfig::None) {
+            return None;
+        }
         Some(RedisWriteEvent::ExecReport(ExecReportEvent {
-            server_id,
+            server_id: session.absolute_id.clone(),
             share_offer_id: TCPSHARECONFIG.share_offer_id,
             route_id: session.route_id,
             pbu: pbu.to_string(),
@@ -504,13 +494,8 @@ impl SessionManager {
             let route_info = self.partition_routing_cache
                 .get(&(pbu.to_string(), set_id))
                 .and_then(|&conn_id| self.conn_id_2_session.get(&conn_id))
-                .map(|s| {
-                    (
-                        s.route_id,
-                        format!("{}", TCPSHARECONFIG.share_offer_id as u32 * 100 + s.route_id as u32),
-                    )
-                });
-            let (route_id, server_id) = route_info.unwrap_or_else(|| (0u16, String::new()));
+                .map(|s| (s.route_id, s.absolute_id.as_str()));
+            let (route_id, server_id) = route_info.unwrap_or((0u16, ""));
             rc.batch_get_execution_reports(
                 TCPSHARECONFIG.share_offer_id,
                 &server_id,
